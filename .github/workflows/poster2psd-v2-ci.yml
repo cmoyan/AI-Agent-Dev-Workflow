@@ -157,8 +157,15 @@ jobs:
           Compress-Archive -Path .\01_PLAN,.\02_SOURCE,.\03_BUILD,.\04_TEST,.\05_RELEASE,.\06_DOCS,.\Poster2PSD.sln,.\README.md,.\global.json,.\Directory.Build.props -DestinationPath $dev -Force
           Copy-Item $dev .\Poster2PSD-V2-0.1.0-alpha.2-Development-Package.zip
 
+          # User-facing Windows bundle: installer + one payload copy only.
+          # Full root/payload duplication remains in 03_BUILD for regression, but is not shipped twice.
+          $exeStage = Join-Path $env:RUNNER_TEMP 'poster2psd-windows-installer-stage'
+          Remove-Item $exeStage -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item $exeStage -ItemType Directory -Force | Out-Null
+          Copy-Item .\03_BUILD\Poster2PSD_Setup.exe (Join-Path $exeStage 'Poster2PSD_Setup.exe') -Force
+          Copy-Item .\03_BUILD\payload (Join-Path $exeStage 'payload') -Recurse -Force
           $exe = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.2-Windows-EXE.zip'
-          Compress-Archive -Path .\03_BUILD\* -DestinationPath $exe -Force
+          Compress-Archive -Path (Join-Path $exeStage '*') -DestinationPath $exe -Force
           Copy-Item $exe .\Poster2PSD-V2-0.1.0-alpha.2-Windows-EXE.zip
 
           $source = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.2-Source.zip'
