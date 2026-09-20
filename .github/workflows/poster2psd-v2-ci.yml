@@ -37,35 +37,28 @@ jobs:
           tar -xf $archive -C $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) { throw "tar extraction failed: $LASTEXITCODE" }
 
-          # Apply the one tracked regression-harness correction, then verify ALL 78 source files.
-          Copy-Item "$env:GITHUB_WORKSPACE\bootstrap\overrides\smoke-binaries.ps1" "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
-          $manifest = "$env:GITHUB_WORKSPACE\bootstrap\SOURCE-FILES-alpha2-r2.sha256"
-          $manifestLines = Get-Content $manifest
-          $canonicalManifestText = ($manifestLines -join "`n") + "`n"
-          $canonicalManifestBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($canonicalManifestText)
-          $manifestActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($canonicalManifestBytes)).ToLowerInvariant()
-          $manifestExpected = '3bbaccae6af53d1c550e3c87de52877098fd3d5b525cc2e8cddc96b67e2f9609'
-          if ($manifestActual -ne $manifestExpected) { throw "Canonical source manifest hash mismatch: $manifestActual" }
+          # Apply the one tracked regression-harness correction.
+          $override = "$env:GITHUB_WORKSPACE\bootstrap\overrides\smoke-binaries.ps1"
+          $overrideExpected = '4db541cdb40d67466a84d25d1366759e3059ef010ccfaa7cef7005833102c38a'
+          $overrideActual = (Get-FileHash $override -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($overrideActual -ne $overrideExpected) { throw "Regression overlay hash mismatch: $overrideActual" }
+          Copy-Item $override "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
 
-          $verified = 0
-          foreach ($line in $manifestLines) {
-            if ([string]::IsNullOrWhiteSpace($line)) { continue }
-            $parts = $line -split '\s+', 2
-            if ($parts.Count -ne 2) { throw "Malformed source manifest line: $line" }
-            $expected = $parts[0].ToLowerInvariant()
-            $rel = $parts[1].Trim().Replace('/', [System.IO.Path]::DirectorySeparatorChar)
-            $path = Join-Path $env:GITHUB_WORKSPACE $rel
-            if (!(Test-Path $path -PathType Leaf)) { throw "Source file missing: $rel" }
-            $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
-            if ($actual -ne $expected) { throw "Source file hash mismatch: $rel expected=$expected actual=$actual" }
-            $verified++
-          }
-          if ($verified -ne 78) { throw "Expected 78 source files, verified $verified" }
-          if (!(Test-Path "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
+          $sourceRoot = "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2"
+          $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
+          if ($fileCount -ne 78) { throw "Expected 78 source files after rehydrate+overlay, found $fileCount" }
+          if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
 
-          "POSTER2PSD_SOURCE_SHA256=$manifestActual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "CANONICAL_SOURCE_FILE_COUNT=$verified"
-          Write-Host "CANONICAL_SOURCE_MANIFEST_SHA256=$manifestActual"
+          # Cross-platform source fingerprint = SHA256(base archive hash + LF + overlay hash + LF).
+          $descriptor = "$baseActual`n$overrideActual`n"
+          $descriptorBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($descriptor)
+          $sourceFingerprint = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($descriptorBytes)).ToLowerInvariant()
+          $fingerprintExpected = 'b00914b642d911cb7c4f74b98f5230370f18300e004d262a0d9755983ff97aec'
+          if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
+
+          "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "CANONICAL_SOURCE_FILE_COUNT=$fileCount"
+          Write-Host "CANONICAL_SOURCE_FINGERPRINT=$sourceFingerprint"
 
       - uses: actions/setup-node@v4
         with:
@@ -106,12 +99,12 @@ jobs:
 
           Commit: $env:GITHUB_SHA
           Run: $env:GITHUB_RUN_ID
-          Canonical source manifest SHA-256: $env:POSTER2PSD_SOURCE_SHA256
+          Canonical source fingerprint: $env:POSTER2PSD_SOURCE_SHA256
 
           ## Source regression
           | Gate | Status |
           |---|---|
-          | 78-file canonical source integrity | PASS |
+          | Canonical base + overlay integrity / 78-file count | PASS |
           | JSON / XML / XAML parse | PASS |
           | UXP JavaScript syntax | PASS |
           | .NET 10 restore | PASS |
