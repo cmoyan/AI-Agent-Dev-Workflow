@@ -40,12 +40,15 @@ jobs:
           # Apply the one tracked regression-harness correction, then verify ALL 78 source files.
           Copy-Item "$env:GITHUB_WORKSPACE\bootstrap\overrides\smoke-binaries.ps1" "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
           $manifest = "$env:GITHUB_WORKSPACE\bootstrap\SOURCE-FILES-alpha2-r2.sha256"
-          $manifestActual = (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifestLines = Get-Content $manifest
+          $canonicalManifestText = ($manifestLines -join "`n") + "`n"
+          $canonicalManifestBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($canonicalManifestText)
+          $manifestActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($canonicalManifestBytes)).ToLowerInvariant()
           $manifestExpected = '3bbaccae6af53d1c550e3c87de52877098fd3d5b525cc2e8cddc96b67e2f9609'
-          if ($manifestActual -ne $manifestExpected) { throw "Source file manifest hash mismatch: $manifestActual" }
+          if ($manifestActual -ne $manifestExpected) { throw "Canonical source manifest hash mismatch: $manifestActual" }
 
           $verified = 0
-          foreach ($line in Get-Content $manifest) {
+          foreach ($line in $manifestLines) {
             if ([string]::IsNullOrWhiteSpace($line)) { continue }
             $parts = $line -split '\s+', 2
             if ($parts.Count -ne 2) { throw "Malformed source manifest line: $line" }
