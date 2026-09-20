@@ -46,10 +46,10 @@ jobs:
           if ($overrideActual -ne $overrideExpected) { throw "Normalized regression overlay hash mismatch: $overrideActual" }
           Copy-Item $override "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
 
-          # Apply alpha.3 Group-01 incremental source patch (Photoshop runtime + Reconstruction + Agent runtime).
-          $patchB64Path = "$env:GITHUB_WORKSPACE\bootstrap\alpha3.patch.gz.b64"
-          $patchGzPath = "$env:RUNNER_TEMP\poster2psd-alpha3.patch.gz"
-          $patchPath = "$env:RUNNER_TEMP\poster2psd-alpha3.patch"
+          # Apply alpha.3 Group-01 source overlay. Keep Unicode plan files out of git apply.
+          $patchB64Path = "$env:GITHUB_WORKSPACE\bootstrap\alpha3-source.patch.gz.b64"
+          $patchGzPath = "$env:RUNNER_TEMP\poster2psd-alpha3-source.patch.gz"
+          $patchPath = "$env:RUNNER_TEMP\poster2psd-alpha3-source.patch"
           $patchGzBytes = [System.Convert]::FromBase64String((Get-Content $patchB64Path -Raw))
           [System.IO.File]::WriteAllBytes($patchGzPath, $patchGzBytes)
           $input = [System.IO.File]::OpenRead($patchGzPath)
@@ -64,21 +64,34 @@ jobs:
           $patchText = (Get-Content $patchPath -Raw).Replace("`r`n", "`n")
           $patchBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($patchText)
           $patchActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($patchBytes)).ToLowerInvariant()
-          $patchExpected = 'db410b55b442ed929a3a753c1e5778956e5173b65baf1824a96f30c7c797d925'
-          if ($patchActual -ne $patchExpected) { throw "Alpha.3 patch hash mismatch: $patchActual" }
+          $patchExpected = '4585444bc32beed8528406daddf5e4efb6f9a91088be993824b04ff18be61488'
+          if ($patchActual -ne $patchExpected) { throw "Alpha.3 source patch hash mismatch: $patchActual" }
           git apply --whitespace=nowarn --directory=projects/Poster2PSD-V2 $patchPath
-          if ($LASTEXITCODE -ne 0) { throw "alpha.3 patch apply failed: $LASTEXITCODE" }
+          if ($LASTEXITCODE -ne 0) { throw "alpha.3 source patch apply failed: $LASTEXITCODE" }
 
+          # Rehydrate 01_PLAN separately so Windows tar/git path encoding cannot corrupt Chinese filenames.
           $sourceRoot = "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2"
-          $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
-          if ($fileCount -ne 81) { throw "Expected 81 source files after alpha.3 patch, found $fileCount" }
-          if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
+          $planB64Path = "$env:GITHUB_WORKSPACE\bootstrap\alpha3-plan.zip.b64"
+          $planZipPath = "$env:RUNNER_TEMP\poster2psd-alpha3-plan.zip"
+          $planBytes = [System.Convert]::FromBase64String((Get-Content $planB64Path -Raw))
+          $planActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($planBytes)).ToLowerInvariant()
+          $planExpected = 'f2a54ba2d5be51f39188db045e351d533aa2ad5bea78ff5e7831e23c2c95bbcf'
+          if ($planActual -ne $planExpected) { throw "Alpha.3 plan ZIP hash mismatch: $planActual" }
+          [System.IO.File]::WriteAllBytes($planZipPath, $planBytes)
+          Remove-Item "$sourceRoot\01_PLAN" -Recurse -Force -ErrorAction SilentlyContinue
+          Expand-Archive -Path $planZipPath -DestinationPath $sourceRoot -Force
 
-          # Cross-platform source fingerprint = SHA256(base + smoke overlay + alpha.3 patch descriptors).
-          $descriptor = "$baseActual`n$overrideActual`n$patchActual`n"
+          $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
+          if ($fileCount -ne 81) { throw "Expected 81 source files after alpha.3 overlays, found $fileCount" }
+          if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
+          $versionText = (Get-Content "$sourceRoot\05_RELEASE\VERSION.txt" -Raw).Trim()
+          if ($versionText -ne '0.1.0-alpha.3') { throw "Unexpected product version: $versionText" }
+
+          # Cross-platform source fingerprint = SHA256(base + smoke + source patch + Unicode plan ZIP descriptors).
+          $descriptor = "$baseActual`n$overrideActual`n$patchActual`n$planActual`n"
           $descriptorBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($descriptor)
           $sourceFingerprint = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($descriptorBytes)).ToLowerInvariant()
-          $fingerprintExpected = '56ba47dfd3d05d417d8ec94e9a344952699c4db9c55fc3d662c72da196b8a24f'
+          $fingerprintExpected = 'd5a8f760c4d90eacc01802b9a9bbab4b22b923e34c088da0f05f4689eeb9b55b'
           if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
 
           "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
