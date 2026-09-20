@@ -33,6 +33,10 @@ jobs:
           if (!(Test-Path "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing after extraction' }
           Write-Host "SOURCE_SNAPSHOT_SHA256=$actual"
 
+      - name: Apply tracked source hotfixes
+        shell: pwsh
+        run: .\\bootstrap\\hotfix-alpha1.ps1
+
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
