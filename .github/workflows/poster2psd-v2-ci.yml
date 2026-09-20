@@ -40,8 +40,10 @@ jobs:
           # Apply the one tracked regression-harness correction.
           $override = "$env:GITHUB_WORKSPACE\bootstrap\overrides\smoke-binaries.ps1"
           $overrideExpected = '4db541cdb40d67466a84d25d1366759e3059ef010ccfaa7cef7005833102c38a'
-          $overrideActual = (Get-FileHash $override -Algorithm SHA256).Hash.ToLowerInvariant()
-          if ($overrideActual -ne $overrideExpected) { throw "Regression overlay hash mismatch: $overrideActual" }
+          $overrideText = (Get-Content $override -Raw).Replace("`r`n", "`n")
+          $overrideBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($overrideText)
+          $overrideActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($overrideBytes)).ToLowerInvariant()
+          if ($overrideActual -ne $overrideExpected) { throw "Normalized regression overlay hash mismatch: $overrideActual" }
           Copy-Item $override "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
 
           $sourceRoot = "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2"
