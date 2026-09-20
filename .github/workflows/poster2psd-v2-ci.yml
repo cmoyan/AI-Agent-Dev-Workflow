@@ -95,7 +95,6 @@ jobs:
         working-directory: projects/Poster2PSD-V2
         run: |
           New-Item .\04_TEST\logs -ItemType Directory -Force | Out-Null
-          Get-ChildItem -Recurse -Filter *.trx | Copy-Item -Destination .\04_TEST\logs -Force
           @"
           # Alpha 0.1.0-alpha.2 Dual Regression Report
 
