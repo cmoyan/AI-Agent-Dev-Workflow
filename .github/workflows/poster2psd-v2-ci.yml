@@ -18,9 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rehydrate canonical alpha.2 source snapshot
+      - name: Rehydrate and verify canonical alpha.2 source tree
         shell: pwsh
         run: |
+          # Rehydrate the last canonical alpha.2 base archive.
           $names = 0..5 | ForEach-Object { "source_{0:d2}.b64" -f $_ }
           $parts = foreach ($name in $names) {
             $path = Join-Path $env:GITHUB_WORKSPACE ("bootstrap\" + $name)
@@ -28,16 +29,40 @@ jobs:
             Get-Content $path -Raw
           }
           $b64 = $parts -join ''
-          $archive = Join-Path $env:GITHUB_WORKSPACE 'Poster2PSD-V2-alpha.2-source.tar.xz'
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'Poster2PSD-V2-alpha.2-base.tar.xz'
           [System.IO.File]::WriteAllBytes($archive, [System.Convert]::FromBase64String($b64))
-          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
-          $expected = '3b40b0bd7551b1fbb07349c8432847f8b12964ff6665d3b684bb89d4d0a4db85'
-          if ($actual -ne $expected) { throw "Source snapshot hash mismatch: $actual" }
+          $baseActual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $baseExpected = '3b40b0bd7551b1fbb07349c8432847f8b12964ff6665d3b684bb89d4d0a4db85'
+          if ($baseActual -ne $baseExpected) { throw "Base source archive hash mismatch: $baseActual" }
           tar -xf $archive -C $env:GITHUB_WORKSPACE
           if ($LASTEXITCODE -ne 0) { throw "tar extraction failed: $LASTEXITCODE" }
-          if (!(Test-Path "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing after extraction' }
-          "POSTER2PSD_SOURCE_SHA256=$actual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          Write-Host "SOURCE_SNAPSHOT_SHA256=$actual"
+
+          # Apply the one tracked regression-harness correction, then verify ALL 78 source files.
+          Copy-Item "$env:GITHUB_WORKSPACE\bootstrap\overrides\smoke-binaries.ps1" "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\02_SOURCE\scripts\smoke-binaries.ps1" -Force
+          $manifest = "$env:GITHUB_WORKSPACE\bootstrap\SOURCE-FILES-alpha2-r2.sha256"
+          $manifestActual = (Get-FileHash $manifest -Algorithm SHA256).Hash.ToLowerInvariant()
+          $manifestExpected = '3bbaccae6af53d1c550e3c87de52877098fd3d5b525cc2e8cddc96b67e2f9609'
+          if ($manifestActual -ne $manifestExpected) { throw "Source file manifest hash mismatch: $manifestActual" }
+
+          $verified = 0
+          foreach ($line in Get-Content $manifest) {
+            if ([string]::IsNullOrWhiteSpace($line)) { continue }
+            $parts = $line -split '\s+', 2
+            if ($parts.Count -ne 2) { throw "Malformed source manifest line: $line" }
+            $expected = $parts[0].ToLowerInvariant()
+            $rel = $parts[1].Trim().Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+            $path = Join-Path $env:GITHUB_WORKSPACE $rel
+            if (!(Test-Path $path -PathType Leaf)) { throw "Source file missing: $rel" }
+            $actual = (Get-FileHash $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) { throw "Source file hash mismatch: $rel expected=$expected actual=$actual" }
+            $verified++
+          }
+          if ($verified -ne 78) { throw "Expected 78 source files, verified $verified" }
+          if (!(Test-Path "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
+
+          "POSTER2PSD_SOURCE_SHA256=$manifestActual" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "CANONICAL_SOURCE_FILE_COUNT=$verified"
+          Write-Host "CANONICAL_SOURCE_MANIFEST_SHA256=$manifestActual"
 
       - uses: actions/setup-node@v4
         with:
@@ -78,12 +103,12 @@ jobs:
 
           Commit: $env:GITHUB_SHA
           Run: $env:GITHUB_RUN_ID
-          Canonical source snapshot SHA-256: $env:POSTER2PSD_SOURCE_SHA256
+          Canonical source manifest SHA-256: $env:POSTER2PSD_SOURCE_SHA256
 
           ## Source regression
           | Gate | Status |
           |---|---|
-          | Canonical snapshot integrity | PASS |
+          | 78-file canonical source integrity | PASS |
           | JSON / XML / XAML parse | PASS |
           | UXP JavaScript syntax | PASS |
           | .NET 10 restore | PASS |
