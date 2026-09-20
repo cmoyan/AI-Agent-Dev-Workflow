@@ -1,0 +1,112 @@
+name: Poster2PSD V2 Alpha Windows CI
+
+on:
+  push:
+    branches: [ poster2psd-v2-bootstrap ]
+    paths:
+      - 'bootstrap/**'
+      - '.github/workflows/poster2psd-v2-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rehydrate exact source snapshot
+        shell: pwsh
+        run: |
+          $parts = Get-ChildItem "$env:GITHUB_WORKSPACE\bootstrap\source_*.b64" | Sort-Object Name | ForEach-Object { Get-Content $_.FullName -Raw }
+          $b64 = $parts -join ''
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'Poster2PSD-V2-source.tar.xz'
+          [System.IO.File]::WriteAllBytes($archive, [System.Convert]::FromBase64String($b64))
+          $actual = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = '4388e4adea7919e6518325d5993e4d19a659f780a8b025c4cf71370af327222b'
+          if ($actual -ne $expected) { throw "Source snapshot hash mismatch: $actual" }
+          tar -xf $archive -C $env:GITHUB_WORKSPACE
+          if ($LASTEXITCODE -ne 0) { throw "tar extraction failed: $LASTEXITCODE" }
+          if (!(Test-Path "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing after extraction' }
+          Write-Host "SOURCE_SNAPSHOT_SHA256=$actual"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Restore
+        working-directory: projects/Poster2PSD-V2
+        run: dotnet restore .\Poster2PSD.sln
+
+      - name: Build source
+        working-directory: projects/Poster2PSD-V2
+        run: dotnet build .\Poster2PSD.sln -c Release --no-restore
+
+      - name: Unit tests
+        working-directory: projects/Poster2PSD-V2
+        run: dotnet test .\02_SOURCE\tests\Poster2PSD.Tests\Poster2PSD.Tests.csproj -c Release --no-build --logger "trx;LogFileName=poster2psd-tests.trx"
+
+      - name: Build Windows release payload
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: .\02_SOURCE\scripts\build-release.ps1 -Version '0.1.0-alpha.1'
+
+      - name: Published binary self-tests
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: .\02_SOURCE\scripts\smoke-binaries.ps1
+
+      - name: Validate Development Package
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: .\02_SOURCE\scripts\validate-package.ps1
+
+      - name: Collect measured test evidence
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: |
+          New-Item .\04_TEST\logs -ItemType Directory -Force | Out-Null
+          Get-ChildItem -Recurse -Filter *.trx | Copy-Item -Destination .\04_TEST\logs -Force
+          @"
+          # Alpha 0.1 Regression Report — GitHub Windows CI
+
+          Commit: $env:GITHUB_SHA
+          Run: $env:GITHUB_RUN_ID
+          Source snapshot SHA-256: 4388e4adea7919e6518325d5993e4d19a659f780a8b025c4cf71370af327222b
+
+          | Gate | Status |
+          |---|---|
+          | Source Snapshot Integrity | PASS |
+          | Clean Windows Restore | PASS |
+          | Source Build | PASS |
+          | Unit Tests | PASS |
+          | Published Binary Self Tests | PASS |
+          | Development Package Validation | PASS |
+          | Photoshop UXP Static Files | PASS |
+          | Photoshop Real Host Handshake | NOT VERIFIED — runner has no Photoshop |
+          | Photoshop Create/Modify Layer | NOT VERIFIED — runner has no Photoshop |
+          | Installer Fresh Install | NOT VERIFIED — disposable Windows acceptance pending |
+          | Upgrade/Rollback | NOT IMPLEMENTED — S0 hardening pending |
+          "@ | Set-Content .\04_TEST\regression-report.md -Encoding utf8
+
+      - name: Assemble Development Package ZIP
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.1-Development-Package.zip'
+          Compress-Archive -Path .\01_PLAN,.\02_SOURCE,.\03_BUILD,.\04_TEST,.\05_RELEASE,.\06_DOCS,.\Poster2PSD.sln,.\README.md,.\global.json,.\Directory.Build.props -DestinationPath $zip -Force
+          Copy-Item $zip .\Poster2PSD-V2-0.1.0-alpha.1-Development-Package.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Poster2PSD-V2-0.1.0-alpha.1-Windows
+          path: |
+            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.1-Development-Package.zip
+            projects/Poster2PSD-V2/03_BUILD/**
+            projects/Poster2PSD-V2/04_TEST/**
+            projects/Poster2PSD-V2/05_RELEASE/**
+          if-no-files-found: error
+          retention-days: 14
