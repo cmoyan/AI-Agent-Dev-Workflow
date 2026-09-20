@@ -155,15 +155,34 @@ jobs:
 
           Get-FileHash .\Poster2PSD-V2-0.1.0-alpha.2-*.zip -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content .\04_TEST\delivery-zip-hashes.txt
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload source package
+        uses: actions/upload-artifact@v4
         with:
-          name: Poster2PSD-V2-0.1.0-alpha.2-Dual-Regression
-          path: |
-            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Development-Package.zip
-            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Windows-EXE.zip
-            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Source.zip
-            projects/Poster2PSD-V2/03_BUILD/**
-            projects/Poster2PSD-V2/04_TEST/**
-            projects/Poster2PSD-V2/05_RELEASE/**
+          name: Poster2PSD-V2-0.1.0-alpha.2-Source
+          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Source.zip
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Windows EXE package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Poster2PSD-V2-0.1.0-alpha.2-Windows-EXE
+          path: |
+            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Windows-EXE.zip
+            projects/Poster2PSD-V2/04_TEST/regression-report.md
+            projects/Poster2PSD-V2/04_TEST/delivery-zip-hashes.txt
+            projects/Poster2PSD-V2/05_RELEASE/BUILD-MANIFEST.json
+            projects/Poster2PSD-V2/05_RELEASE/FILE-HASHES.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload Development Package
+        uses: actions/upload-artifact@v4
+        with:
+          name: Poster2PSD-V2-0.1.0-alpha.2-Development-Package
+          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.2-Development-Package.zip
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 14
