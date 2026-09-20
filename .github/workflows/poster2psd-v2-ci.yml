@@ -137,6 +137,18 @@ jobs:
           | Signed updater / rollback | NOT IMPLEMENTED — S0 hardening pending |
           "@ | Set-Content .\04_TEST\regression-report.md -Encoding utf8
 
+      - name: Clean generated source outputs before packaging
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: |
+          $generated = Get-ChildItem .\02_SOURCE -Directory -Recurse | Where-Object { $_.Name -in @('bin','obj','TestResults') } | Sort-Object FullName -Descending
+          foreach ($dir in $generated) {
+            if (Test-Path $dir.FullName) { Remove-Item $dir.FullName -Recurse -Force }
+          }
+          $remaining = Get-ChildItem .\02_SOURCE -Directory -Recurse | Where-Object { $_.Name -in @('bin','obj','TestResults') }
+          if ($remaining) { throw 'Generated source outputs remain after cleanup.' }
+          Write-Host 'Generated source outputs cleaned before delivery packaging.'
+
       - name: Assemble source and EXE delivery ZIPs
         shell: pwsh
         working-directory: projects/Poster2PSD-V2
