@@ -1,11 +1,12 @@
-# Poster2PSD V2 Alpha Bootstrap Branch
+# Poster2PSD V2 Alpha 0.1.0-alpha.2 Dual Regression
 
-This branch is intentionally isolated from the repository main tree.
+This isolated branch carries a canonical Poster2PSD source snapshot and a Windows CI pipeline.
 
-The Poster2PSD V2 source snapshot is stored as ordered Base64 chunks under `bootstrap/`.
-GitHub Actions reconstructs the exact `tar.xz` snapshot, verifies SHA-256
-`4388e4adea7919e6518325d5993e4d19a659f780a8b025c4cf71370af327222b`,
-then builds and tests the Windows .NET 10 solution.
+Canonical source tar.xz SHA-256:
+`3b40b0bd7551b1fbb07349c8432847f8b12964ff6665d3b684bb89d4d0a4db85`
 
-Product version: `0.1.0-alpha.1`
-Master baseline: Poster2PSD V2 Master Development Outline v1.0 (LOCKED)
+A run is acceptable only when BOTH gates pass:
+1. Source regression: static parse, restore, vulnerable dependency audit, warnings-as-errors solution build, xUnit.
+2. EXE artifact regression: 9 PE executables, ProductVersion/self-tests, payload parity, isolated install/repair/uninstall, data-preservation, release hash verification.
+
+Photoshop real-host validation is explicitly excluded from CI and remains NOT VERIFIED until a Photoshop host regression is executed.
