@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Rehydrate and verify canonical alpha.3 source tree
+      - name: Rehydrate and verify canonical alpha.4 source tree
         shell: pwsh
         run: |
           # Rehydrate the last canonical alpha.3 base archive.
@@ -81,17 +81,37 @@ jobs:
           Remove-Item "$sourceRoot\01_PLAN" -Recurse -Force -ErrorAction SilentlyContinue
           Expand-Archive -Path $planZipPath -DestinationPath $sourceRoot -Force
 
+          # Apply alpha.4 Group-02 overlay: Generation + Campaign + Revision runtimes.
+          $alpha4PatchGzPath = "$env:GITHUB_WORKSPACE\bootstrap\alpha4-group02.patch.gz"
+          $alpha4PatchPath = "$env:RUNNER_TEMP\poster2psd-alpha4-group02.patch"
+          $alpha4Input = [System.IO.File]::OpenRead($alpha4PatchGzPath)
+          try {
+            $alpha4Gzip = [System.IO.Compression.GzipStream]::new($alpha4Input, [System.IO.Compression.CompressionMode]::Decompress)
+            try {
+              $alpha4Output = [System.IO.File]::Create($alpha4PatchPath)
+              try { $alpha4Gzip.CopyTo($alpha4Output) } finally { $alpha4Output.Dispose() }
+            } finally { $alpha4Gzip.Dispose() }
+          } finally { $alpha4Input.Dispose() }
+
+          $alpha4PatchText = (Get-Content $alpha4PatchPath -Raw).Replace("`r`n", "`n")
+          $alpha4PatchBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($alpha4PatchText)
+          $alpha4PatchActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($alpha4PatchBytes)).ToLowerInvariant()
+          $alpha4PatchExpected = '870114b74f217d61dbdf3e104042755c5e71161460babf892768c4a7b141cc06'
+          if ($alpha4PatchActual -ne $alpha4PatchExpected) { throw "Alpha.4 Group-02 patch hash mismatch: $alpha4PatchActual" }
+          git apply --whitespace=nowarn --directory=projects/Poster2PSD-V2 $alpha4PatchPath
+          if ($LASTEXITCODE -ne 0) { throw "alpha.4 Group-02 patch apply failed: $LASTEXITCODE" }
+
           $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
-          if ($fileCount -ne 81) { throw "Expected 81 source files after alpha.3 overlays, found $fileCount" }
+          if ($fileCount -ne 86) { throw "Expected 86 source files after alpha.3 + alpha.4 overlays, found $fileCount" }
           if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
           $versionText = (Get-Content "$sourceRoot\05_RELEASE\VERSION.txt" -Raw).Trim()
-          if ($versionText -ne '0.1.0-alpha.3') { throw "Unexpected product version: $versionText" }
+          if ($versionText -ne '0.1.0-alpha.4') { throw "Unexpected product version: $versionText" }
 
-          # Cross-platform source fingerprint = SHA256(base + smoke + source patch + Unicode plan ZIP descriptors).
-          $descriptor = "$baseActual`n$overrideActual`n$patchActual`n$planActual`n"
+          # Cross-platform source fingerprint = SHA256(base + smoke + alpha.3 patch + plan ZIP + alpha.4 patch descriptors).
+          $descriptor = "$baseActual`n$overrideActual`n$patchActual`n$planActual`n$alpha4PatchActual`n"
           $descriptorBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($descriptor)
           $sourceFingerprint = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($descriptorBytes)).ToLowerInvariant()
-          $fingerprintExpected = 'd5a8f760c4d90eacc01802b9a9bbab4b22b923e34c088da0f05f4689eeb9b55b'
+          $fingerprintExpected = '2e2ed60f5a41ed59f8b08ddb2c2d6a2ca5fb95b2614711472ab859652f45213f'
           if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
 
           "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
@@ -114,17 +134,17 @@ jobs:
       - name: Build Windows self-contained release payload
         shell: pwsh
         working-directory: projects/Poster2PSD-V2
-        run: .\02_SOURCE\scripts\build-release.ps1 -Version '0.1.0-alpha.3' -SourceSnapshotSha256 $env:POSTER2PSD_SOURCE_SHA256
+        run: .\02_SOURCE\scripts\build-release.ps1 -Version '0.1.0-alpha.4' -SourceSnapshotSha256 $env:POSTER2PSD_SOURCE_SHA256
 
       - name: EXE ARTIFACT REGRESSION
         shell: pwsh
         working-directory: projects/Poster2PSD-V2
-        run: .\02_SOURCE\scripts\smoke-binaries.ps1 -Version '0.1.0-alpha.3'
+        run: .\02_SOURCE\scripts\smoke-binaries.ps1 -Version '0.1.0-alpha.4'
 
       - name: Development Package source plus EXE validation
         shell: pwsh
         working-directory: projects/Poster2PSD-V2
-        run: .\02_SOURCE\scripts\validate-package.ps1 -Version '0.1.0-alpha.3' -SourceSnapshotSha256 $env:POSTER2PSD_SOURCE_SHA256
+        run: .\02_SOURCE\scripts\validate-package.ps1 -Version '0.1.0-alpha.4' -SourceSnapshotSha256 $env:POSTER2PSD_SOURCE_SHA256
 
       - name: Collect regression evidence
         shell: pwsh
@@ -132,7 +152,7 @@ jobs:
         run: |
           New-Item .\04_TEST\logs -ItemType Directory -Force | Out-Null
           @"
-          # Alpha 0.1.0-alpha.3 Dual Regression Report
+          # Alpha 0.1.0-alpha.4 Dual Regression Report
 
           Commit: $env:GITHUB_SHA
           Run: $env:GITHUB_RUN_ID
@@ -141,7 +161,7 @@ jobs:
           ## Source regression
           | Gate | Status |
           |---|---|
-          | Canonical base + smoke overlay + alpha.3 patch integrity / 81-file count | PASS |
+          | Canonical base + alpha.3 + alpha.4 overlay integrity / 86-file count | PASS |
           | JSON / XML / XAML parse | PASS |
           | UXP JavaScript syntax | PASS |
           | .NET 10 restore | PASS |
@@ -155,7 +175,7 @@ jobs:
           | win-x64 self-contained publish | PASS |
           | 9 Windows PE executable checks | PASS |
           | 9 executable self-tests | PASS |
-          | ProductVersion alpha.3 checks | PASS |
+          | ProductVersion alpha.4 checks | PASS |
           | root/payload binary hash parity | PASS |
           | isolated fresh install | PASS |
           | stable Launcher probe | PASS |
@@ -170,8 +190,8 @@ jobs:
           |---|---|
           | Photoshop real UXP handshake | NOT VERIFIED — GitHub runner has no Photoshop |
           | Photoshop real PSD create/modify/open/save/reopen | NOT VERIFIED — GitHub runner has no Photoshop |
-          | OCR/segmentation/matting/layout real inference | NOT INSTALLED — contract only in alpha.3 |
-          | Provider / ControlNet execution | NOT IMPLEMENTED — runtime budget gates only |
+          | OCR/segmentation/matting/layout real inference | NOT INSTALLED — runtime contracts only in alpha.4 |
+          | Provider / ControlNet execution | NOT IMPLEMENTED — Generation/Campaign runtimes are provider-neutral |
           | Signed updater / rollback | NOT IMPLEMENTED — S0 hardening pending |
           "@ | Set-Content .\04_TEST\regression-report.md -Encoding utf8
 
@@ -191,9 +211,9 @@ jobs:
         shell: pwsh
         working-directory: projects/Poster2PSD-V2
         run: |
-          $dev = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.3-Development-Package.zip'
+          $dev = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.4-Development-Package.zip'
           Compress-Archive -Path .\01_PLAN,.\02_SOURCE,.\03_BUILD,.\04_TEST,.\05_RELEASE,.\06_DOCS,.\Poster2PSD.sln,.\README.md,.\global.json,.\Directory.Build.props -DestinationPath $dev -Force
-          Copy-Item $dev .\Poster2PSD-V2-0.1.0-alpha.3-Development-Package.zip
+          Copy-Item $dev .\Poster2PSD-V2-0.1.0-alpha.4-Development-Package.zip
 
           # User-facing Windows bundle: installer + one payload copy only.
           # Full root/payload duplication remains in 03_BUILD for regression, but is not shipped twice.
@@ -202,21 +222,21 @@ jobs:
           New-Item $exeStage -ItemType Directory -Force | Out-Null
           Copy-Item .\03_BUILD\Poster2PSD_Setup.exe (Join-Path $exeStage 'Poster2PSD_Setup.exe') -Force
           Copy-Item .\03_BUILD\payload (Join-Path $exeStage 'payload') -Recurse -Force
-          $exe = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.3-Windows-EXE.zip'
+          $exe = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.4-Windows-EXE.zip'
           Compress-Archive -Path (Join-Path $exeStage '*') -DestinationPath $exe -Force
-          Copy-Item $exe .\Poster2PSD-V2-0.1.0-alpha.3-Windows-EXE.zip
+          Copy-Item $exe .\Poster2PSD-V2-0.1.0-alpha.4-Windows-EXE.zip
 
-          $source = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.3-Source.zip'
+          $source = Join-Path $env:RUNNER_TEMP 'Poster2PSD-V2-0.1.0-alpha.4-Source.zip'
           Compress-Archive -Path .\01_PLAN,.\02_SOURCE,.\05_RELEASE,.\06_DOCS,.\Poster2PSD.sln,.\README.md,.\global.json,.\Directory.Build.props -DestinationPath $source -Force
-          Copy-Item $source .\Poster2PSD-V2-0.1.0-alpha.3-Source.zip
+          Copy-Item $source .\Poster2PSD-V2-0.1.0-alpha.4-Source.zip
 
-          Get-FileHash .\Poster2PSD-V2-0.1.0-alpha.3-*.zip -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content .\04_TEST\delivery-zip-hashes.txt
+          Get-FileHash .\Poster2PSD-V2-0.1.0-alpha.4-*.zip -Algorithm SHA256 | Format-Table -AutoSize | Out-String | Set-Content .\04_TEST\delivery-zip-hashes.txt
 
       - name: Upload source package
         uses: actions/upload-artifact@v4
         with:
-          name: Poster2PSD-V2-0.1.0-alpha.3-Source
-          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.3-Source.zip
+          name: Poster2PSD-V2-0.1.0-alpha.4-Source
+          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.4-Source.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
@@ -224,9 +244,9 @@ jobs:
       - name: Upload Windows EXE package
         uses: actions/upload-artifact@v4
         with:
-          name: Poster2PSD-V2-0.1.0-alpha.3-Windows-EXE
+          name: Poster2PSD-V2-0.1.0-alpha.4-Windows-EXE
           path: |
-            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.3-Windows-EXE.zip
+            projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.4-Windows-EXE.zip
             projects/Poster2PSD-V2/04_TEST/regression-report.md
             projects/Poster2PSD-V2/04_TEST/delivery-zip-hashes.txt
             projects/Poster2PSD-V2/05_RELEASE/BUILD-MANIFEST.json
@@ -238,8 +258,8 @@ jobs:
       - name: Upload Development Package
         uses: actions/upload-artifact@v4
         with:
-          name: Poster2PSD-V2-0.1.0-alpha.3-Development-Package
-          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.3-Development-Package.zip
+          name: Poster2PSD-V2-0.1.0-alpha.4-Development-Package
+          path: projects/Poster2PSD-V2/Poster2PSD-V2-0.1.0-alpha.4-Development-Package.zip
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
