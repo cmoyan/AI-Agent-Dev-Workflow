@@ -57,28 +57,31 @@ jobs:
           & $fixPath -SourceRoot $sourceRoot
           if ($LASTEXITCODE -ne 0) { throw "alpha.6 r2 source fix failed: $LASTEXITCODE" }
 
+          # Apply alpha.6 r3 weighted prompt parser correction.
+          $r3Path = "$env:GITHUB_WORKSPACE\bootstrap\alpha6\alpha6-r3-prompt-fix.ps1"
+          $r3Text = (Get-Content $r3Path -Raw).Replace("`r`n", "`n")
+          $r3Bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($r3Text)
+          $r3Actual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($r3Bytes)).ToLowerInvariant()
+          $r3Expected = '2c7d0427aaea175711ce16c2b6ea6f4d57a4ad167923c62beb3cecf9b4671a83'
+          if ($r3Actual -ne $r3Expected) { throw "Alpha.6 r3 fix hash mismatch: $r3Actual" }
+          & $r3Path -SourceRoot $sourceRoot
+          if ($LASTEXITCODE -ne 0) { throw "alpha.6 r3 source fix failed: $LASTEXITCODE" }
+
           $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
           if ($fileCount -ne 90) { throw "Expected 90 canonical alpha.6 source files, found $fileCount" }
           if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
           $versionText = (Get-Content "$sourceRoot\05_RELEASE\VERSION.txt" -Raw).Trim()
           if ($versionText -ne '0.1.0-alpha.6') { throw "Unexpected product version: $versionText" }
 
-          $descriptor = "$archiveActual`n$fixActual`n"
+          $descriptor = "$archiveActual`n$fixActual`n$r3Actual`n"
           $descriptorBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($descriptor)
           $sourceFingerprint = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($descriptorBytes)).ToLowerInvariant()
-          $fingerprintExpected = '02713178c706022f85ee661845be7bbbc78a205c557df76c6abbc35ac6cf0ca6'
+          $fingerprintExpected = '0999413f0804d650f35afe8ac55f2206cce17511f5278ce0b5bc6d59d7bedf17'
           if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
 
           "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "CANONICAL_SOURCE_FILE_COUNT=$fileCount"
           Write-Host "CANONICAL_SOURCE_FINGERPRINT=$sourceFingerprint"
-
-      - name: ALPHA6 PromptCompiler diagnostic
-        shell: pwsh
-        working-directory: projects/Poster2PSD-V2
-        run: |
-          Get-Content .\02_SOURCE\src\Poster2PSD.MLHost\PromptCompiler.cs -Raw
-          throw 'DIAGNOSTIC_STOP_AFTER_PROMPT_COMPILER'
 
       - uses: actions/setup-node@v4
         with:
@@ -123,7 +126,7 @@ jobs:
           ## Source regression
           | Gate | Status |
           |---|---|
-          | Canonical alpha.6 snapshot + r2 System.IO overlay integrity / 90-file count | PASS |
+          | Canonical alpha.6 snapshot + r2 System.IO + r3 weighted-prompt overlays / 90-file count | PASS |
           | JSON / XML / XAML parse | PASS |
           | UXP JavaScript syntax | PASS |
           | .NET 10 restore | PASS |
