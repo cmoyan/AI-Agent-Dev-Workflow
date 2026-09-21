@@ -79,6 +79,9 @@ jobs:
           $fingerprintExpected = '0999413f0804d650f35afe8ac55f2206cce17511f5278ce0b5bc6d59d7bedf17'
           if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
 
+          # 04_TEST is a generated regression-evidence staging directory and can be empty in the canonical file snapshot.
+          New-Item "$sourceRoot\04_TEST" -ItemType Directory -Force | Out-Null
+
           "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "CANONICAL_SOURCE_FILE_COUNT=$fileCount"
           Write-Host "CANONICAL_SOURCE_FINGERPRINT=$sourceFingerprint"
