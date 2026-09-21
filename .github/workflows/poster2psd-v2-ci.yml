@@ -73,6 +73,13 @@ jobs:
           Write-Host "CANONICAL_SOURCE_FILE_COUNT=$fileCount"
           Write-Host "CANONICAL_SOURCE_FINGERPRINT=$sourceFingerprint"
 
+      - name: ALPHA6 PromptCompiler diagnostic
+        shell: pwsh
+        working-directory: projects/Poster2PSD-V2
+        run: |
+          Get-Content .\02_SOURCE\src\Poster2PSD.MLHost\PromptCompiler.cs -Raw
+          throw 'DIAGNOSTIC_STOP_AFTER_PROMPT_COMPILER'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
