@@ -46,13 +46,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "alpha.6 canonical extraction failed: $LASTEXITCODE" }
 
           $sourceRoot = "$env:GITHUB_WORKSPACE\projects\Poster2PSD-V2"
+
+          # Apply the alpha.6 r2 compile-only overlay after snapshot extraction.
+          $fixPath = "$env:GITHUB_WORKSPACE\bootstrap\alpha6\alpha6-r2-fix.ps1"
+          $fixText = (Get-Content $fixPath -Raw).Replace("`r`n", "`n")
+          $fixBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($fixText)
+          $fixActual = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($fixBytes)).ToLowerInvariant()
+          $fixExpected = '80c0df200c8fd781f36b02fb7013aaacfc66cf05cbbcd17c8f847eb9fe06c89c'
+          if ($fixActual -ne $fixExpected) { throw "Alpha.6 r2 fix hash mismatch: $fixActual" }
+          & $fixPath -SourceRoot $sourceRoot
+          if ($LASTEXITCODE -ne 0) { throw "alpha.6 r2 source fix failed: $LASTEXITCODE" }
+
           $fileCount = (Get-ChildItem $sourceRoot -File -Recurse).Count
           if ($fileCount -ne 90) { throw "Expected 90 canonical alpha.6 source files, found $fileCount" }
           if (!(Test-Path "$sourceRoot\Poster2PSD.sln")) { throw 'Poster2PSD.sln missing' }
           $versionText = (Get-Content "$sourceRoot\05_RELEASE\VERSION.txt" -Raw).Trim()
           if ($versionText -ne '0.1.0-alpha.6') { throw "Unexpected product version: $versionText" }
 
-          $sourceFingerprint = $archiveActual
+          $descriptor = "$archiveActual`n$fixActual`n"
+          $descriptorBytes = [System.Text.UTF8Encoding]::new($false).GetBytes($descriptor)
+          $sourceFingerprint = [System.Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($descriptorBytes)).ToLowerInvariant()
+          $fingerprintExpected = '02713178c706022f85ee661845be7bbbc78a205c557df76c6abbc35ac6cf0ca6'
+          if ($sourceFingerprint -ne $fingerprintExpected) { throw "Source fingerprint mismatch: $sourceFingerprint" }
+
           "POSTER2PSD_SOURCE_SHA256=$sourceFingerprint" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "CANONICAL_SOURCE_FILE_COUNT=$fileCount"
           Write-Host "CANONICAL_SOURCE_FINGERPRINT=$sourceFingerprint"
@@ -100,7 +116,7 @@ jobs:
           ## Source regression
           | Gate | Status |
           |---|---|
-          | Canonical complete alpha.6 snapshot integrity / 90-file count | PASS |
+          | Canonical alpha.6 snapshot + r2 System.IO overlay integrity / 90-file count | PASS |
           | JSON / XML / XAML parse | PASS |
           | UXP JavaScript syntax | PASS |
           | .NET 10 restore | PASS |
