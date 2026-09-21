@@ -82,8 +82,13 @@ jobs:
           Expand-Archive -Path $planZipPath -DestinationPath $sourceRoot -Force
 
           # Apply alpha.4 Group-02 overlay: Generation + Campaign + Revision runtimes.
-          $alpha4PatchGzPath = "$env:GITHUB_WORKSPACE\bootstrap\alpha4-group02.patch.gz"
+          $alpha4PatchB64Path = "$env:GITHUB_WORKSPACE\bootstrap\alpha4-group02.patch.gz.b64"
+          $alpha4PatchGzPath = "$env:RUNNER_TEMP\poster2psd-alpha4-group02.patch.gz"
           $alpha4PatchPath = "$env:RUNNER_TEMP\poster2psd-alpha4-group02.patch"
+          $alpha4PatchGzBytes = [System.Convert]::FromBase64String((Get-Content $alpha4PatchB64Path -Raw))
+          [System.IO.File]::WriteAllBytes($alpha4PatchGzPath, $alpha4PatchGzBytes)
+          $alpha4PatchGzActual = (Get-FileHash $alpha4PatchGzPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($alpha4PatchGzActual -ne '7681baa3a5c28e938e3c2fe8a892682937f2275d05cb25542c4beaca6fb1617d') { throw "Alpha.4 Group-02 gzip hash mismatch: $alpha4PatchGzActual" }
           $alpha4Input = [System.IO.File]::OpenRead($alpha4PatchGzPath)
           try {
             $alpha4Gzip = [System.IO.Compression.GzipStream]::new($alpha4Input, [System.IO.Compression.CompressionMode]::Decompress)
